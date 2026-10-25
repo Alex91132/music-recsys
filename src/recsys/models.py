@@ -8,11 +8,11 @@ import numpy as np
 import polars as pl
 import scipy.sparse as sp
 
-from .baselines import _exclude, _rank
+from .baselines import _exclude, _rank, decay
 
 
 def _decay(end: int, half_life: float) -> pl.Expr:
-    return 0.5 ** ((end - pl.col("day").cast(pl.Float64)) / half_life)
+    return decay(end, half_life)
 
 
 def item2item(hist: pl.DataFrame, users: pl.Series, k: int, days: int = 180, window: int = 5,

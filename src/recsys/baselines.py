@@ -5,7 +5,14 @@
 """
 from __future__ import annotations
 
+import math
+
 import polars as pl
+
+
+def decay(end: int, half_life: float) -> pl.Expr:
+    """Вес события по давности: 1 в день end, 0,5 через half_life дней (через exp — без литерала в основании)."""
+    return (-(math.log(2) / half_life) * (end - pl.col("day").cast(pl.Float64))).exp()
 
 
 def _rank(df: pl.DataFrame, score: str, k: int) -> pl.DataFrame:
@@ -35,7 +42,7 @@ def own_top(hist: pl.DataFrame, users: pl.Series, k: int, half_life: float = 60.
     end = hist["day"].max()
     h = hist.filter(pl.col("pos") & pl.col("uid").is_in(users))
     s = h.group_by("uid", "item_id").agg(
-        (0.5 ** ((end - pl.col("day").cast(pl.Float64)) / half_life)).sum().alias("score"))
+        decay(end, half_life).sum().alias("score"))
     return _rank(s, "score", k)
 
 
@@ -50,7 +57,7 @@ def artist_tracks(hist: pl.DataFrame, users: pl.Series, artists: pl.DataFrame, k
     h = hist.filter(pl.col("pos")).join(artists, on="item_id", how="inner")
     ua = (h.filter(pl.col("uid").is_in(users))
           .group_by("uid", "artist_id")
-          .agg((0.5 ** ((end - pl.col("day").cast(pl.Float64)) / half_life)).sum().alias("w_artist"))
+          .agg(decay(end, half_life).sum().alias("w_artist"))
           .with_columns(pl.col("w_artist").rank("ordinal", descending=True).over("uid").alias("r"))
           .filter(pl.col("r") <= n_artists))
     ua = ua.with_columns(pl.col("w_artist") / pl.col("w_artist").sum().over("uid"))

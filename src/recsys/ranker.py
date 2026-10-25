@@ -13,6 +13,7 @@ import numpy as np
 import polars as pl
 
 from . import baselines as B
+from .baselines import decay
 from . import models as M
 from .data import history, seen_items, targets
 
@@ -20,7 +21,7 @@ N_CAND = {"own": 150, "artist": 150, "i2i": 150, "als": 200, "pop": 50}
 
 
 def _decay(end: int, half_life: float) -> pl.Expr:
-    return 0.5 ** ((end - pl.col("day").cast(pl.Float64)) / half_life)
+    return decay(end, half_life)
 
 
 def candidates(hist: pl.DataFrame, users: pl.Series, artists: pl.DataFrame, discover: bool,
@@ -89,16 +90,31 @@ class Window:
     n_pos_total: int            # всего положительных в окне (для полноты кандидатов)
 
 
-def build(events: pl.DataFrame, start: int, artists: pl.DataFrame, discover: bool) -> Window:
-    hist = history(events, start)
+def build(events: pl.DataFrame, start: int, artists: pl.DataFrame, discover: bool, cache: bool = True) -> Window:
+    """Кандидаты + признаки + метки окна; результат кэшируется в data/processed (пересчёт ~1,5 мин)."""
+    from .data import ROOT
     tg = targets(events, start, new_only=discover)
+    path = ROOT / "data" / "processed" / f"window_{start}_{'new' if discover else 'all'}.parquet"
+    if cache and path.exists():
+        return Window(start, discover, pl.read_parquet(path), tg.height)
+    hist = history(events, start)
     users = tg["uid"].unique()
     ex = seen_items(events, start) if discover else None
     cand = candidates(hist, users, artists, discover, ex)
     f = features(cand, hist, artists)
     f = f.join(tg.select("uid", "item_id", pl.lit(1, pl.Int8).alias("label")), on=["uid", "item_id"], how="left")
     f = f.with_columns(pl.col("label").fill_null(0)).sort("uid")
+    if cache:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        f.write_parquet(path)
     return Window(start, discover, f, tg.height)
+
+
+def without_source(win: Window, src: str) -> Window:
+    """Окно без одного источника: убираем его признак-ранг и кандидатов, которых предложил только он."""
+    others = [c for c in win.data.columns if c.startswith("r_") and c != f"r_{src}"]
+    keep = pl.any_horizontal([pl.col(c).is_not_null() for c in others])
+    return Window(win.start, win.discover, win.data.filter(keep).drop(f"r_{src}"), win.n_pos_total)
 
 
 FEATURES_EXCLUDE = {"uid", "item_id", "label"}

@@ -11,3 +11,4 @@ nbformat==5.10.4
 nbclient==0.10.2
 ipykernel==6.29.5
 scikit-learn==1.5.2
+kaleido==0.2.1
