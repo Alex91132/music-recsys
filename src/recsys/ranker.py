@@ -19,6 +19,10 @@ from .data import history, seen_items, targets
 
 N_CAND = {"own": 150, "artist": 150, "i2i": 150, "als": 200, "pop": 50}
 
+# Версия кэша окон. Поднимайте при любом изменении признаков или источников кандидатов:
+# иначе старые окна подхватятся молча и прогон покажет числа от прежней логики.
+CACHE_VERSION = 2
+
 
 def _decay(end: int, half_life: float) -> pl.Expr:
     return decay(end, half_life)
@@ -94,7 +98,7 @@ def build(events: pl.DataFrame, start: int, artists: pl.DataFrame, discover: boo
     """Кандидаты + признаки + метки окна; результат кэшируется в data/processed (пересчёт ~1,5 мин)."""
     from .data import ROOT
     tg = targets(events, start, new_only=discover)
-    path = ROOT / "data" / "processed" / f"window_{start}_{'new' if discover else 'all'}.parquet"
+    path = ROOT / "data" / "processed" / f"window_v{CACHE_VERSION}_{start}_{'new' if discover else 'all'}.parquet"
     if cache and path.exists():
         return Window(start, discover, pl.read_parquet(path), tg.height)
     hist = history(events, start)
